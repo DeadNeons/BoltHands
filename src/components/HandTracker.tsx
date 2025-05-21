@@ -37,20 +37,21 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
         const gl = canvas.getContext('webgl2', {
           preserveDrawingBuffer: true,
           antialias: true,
-          powerPreference: 'high-performance'
+          powerPreference: 'high-performance',
+          failIfMajorPerformanceCaveat: false
         });
 
         if (!gl) {
           throw new Error('WebGL2 not supported');
         }
 
-        // Initialize vision tasks with explicit timeout
+        // Initialize vision tasks with explicit timeout and retry
         const visionPromise = FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
         );
 
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Vision tasks initialization timeout')), 10000);
+          setTimeout(() => reject(new Error('Vision tasks initialization timeout')), 15000);
         });
 
         const vision = await Promise.race([visionPromise, timeoutPromise]);
@@ -67,9 +68,9 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
           },
           runningMode: 'VIDEO',
           numHands: 2,
-          minHandDetectionConfidence: 0.1,
-          minHandPresenceConfidence: 0.1,
-          minTrackingConfidence: 0.1
+          minHandDetectionConfidence: 0.05, // Further lowered threshold
+          minHandPresenceConfidence: 0.05, // Further lowered threshold
+          minTrackingConfidence: 0.05 // Further lowered threshold
         });
 
         if (!isMounted) {
@@ -92,11 +93,11 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
           return;
         }
 
-        // Retry initialization with increasing delay
-        if (initializationAttempts.current < 3) {
-          const delay = Math.min(2000 * Math.pow(2, initializationAttempts.current), 10000);
+        // More aggressive retry strategy
+        if (initializationAttempts.current < 5) {
+          const delay = Math.min(1000 * Math.pow(1.5, initializationAttempts.current), 5000);
           initializationAttempts.current++;
-          console.log(`Retrying initialization (attempt ${initializationAttempts.current}/3) in ${delay}ms...`);
+          console.log(`Retrying initialization (attempt ${initializationAttempts.current}/5) in ${delay}ms...`);
           
           setTimeout(() => {
             isInitializingRef.current = false;
@@ -148,7 +149,8 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
         video: { 
           facingMode: 'environment',
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          frameRate: { ideal: 60 }
         } 
       };
       
@@ -178,7 +180,8 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
           video: { 
             facingMode: 'user',
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            frameRate: { ideal: 60 }
           } 
         };
         const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
@@ -228,8 +231,6 @@ function HandTracker({ videoRef, onGestureDetected }: HandTrackerProps) {
     }
 
     const startTimeMs = performance.now();
-    const timeSinceStart = Date.now() - (detectionStartTime.current || 0);
-    const forceProcess = timeSinceStart < 10000; // Increased initial detection window
 
     try {
       const results: HandLandmarkerResult = handLandmarkerRef.current.detectForVideo(video, startTimeMs);
